@@ -1,29 +1,15 @@
 package org.firstinspires.ftc.teamcode;
 
-import com.qualcomm.hardware.rev.RevHubOrientationOnRobot;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
 import com.qualcomm.robotcore.hardware.CRServo;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
-import com.qualcomm.robotcore.hardware.IMU;
-import com.qualcomm.robotcore.hardware.ImuOrientationOnRobot;
-import com.qualcomm.robotcore.util.ElapsedTime;
-import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
-
-
-import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
-import org.firstinspires.ftc.robotcore.external.navigation.AxesOrder;
-import org.firstinspires.ftc.robotcore.external.navigation.AxesReference;
 
 @TeleOp
 public class REVStarterBotTeleOpMecanumCoded extends LinearOpMode {
 
-    double integralSum = 0;
-    double Kp = PIDConstants.Kp;
-    double Ki = PIDConstants.Ki;
-    double Kd = PIDConstants.Kd;
-    private DcMotor flywheel;
+    private DcMotorEx flywheel;
     private DcMotor coreHex;
     private DcMotor frontLeft;
     private DcMotor backLeft;
@@ -33,12 +19,8 @@ public class REVStarterBotTeleOpMecanumCoded extends LinearOpMode {
 
     int BANK_VELOCITY;
     int FAR_VELOCITY;
-
-    private double lastError = 0;
-
-    private IMU imu;
-
-    ElapsedTime timer = new ElapsedTime();
+    private double flywheelTargetVelocity = 0;
+    private static final double VELOCITY_TOLERANCE = 50.0;
 
     /**
      * This sample contains the bare minimum Blocks for any regular OpMode. The 3 blue
@@ -49,10 +31,8 @@ public class REVStarterBotTeleOpMecanumCoded extends LinearOpMode {
      */
     @Override
     public void runOpMode() {
-        int MAX_VELOCITY;
 
-        // Hardware Initialization
-        flywheel = hardwareMap.get(DcMotor.class, "flywheel");
+        flywheel = hardwareMap.get(DcMotorEx.class, "flywheel");
         coreHex = hardwareMap.get(DcMotor.class, "coreHex");
         frontLeft = hardwareMap.get(DcMotor.class, "frontLeft");
         backLeft = hardwareMap.get(DcMotor.class, "backLeft");
@@ -60,23 +40,11 @@ public class REVStarterBotTeleOpMecanumCoded extends LinearOpMode {
         frontRight = hardwareMap.get(DcMotor.class, "frontRight");
         servo = hardwareMap.get(CRServo.class, "servo");
 
-        //IMU
-        imu = hardwareMap.get(IMU.class, "imu");
-
-        RevHubOrientationOnRobot.LogoFacingDirection logoDirection = RevHubOrientationOnRobot.LogoFacingDirection.LEFT;
-        RevHubOrientationOnRobot.UsbFacingDirection  usbDirection  = RevHubOrientationOnRobot.UsbFacingDirection.UP;
-
-        BHI260IMU.Parameters parameters = new BHI260IMU.Parameters();
-        parameters.mode = BHI260IMU.SensorMode.IMU; // Fully qualify SensorMode or import it
-        parameters.angleUnit = AngleUnit.RADIANS; // This import covers AngleUnit
-        imu.initialize(parameters);
-
-        double refrenceAngle = Math.toRadians(10);
-
         // Establishing the direction and mode for the motors
         flywheel.setMode(DcMotor.RunMode.RUN_USING_ENCODER);
         flywheel.setDirection(DcMotor.Direction.REVERSE);
         coreHex.setDirection(DcMotor.Direction.REVERSE);
+
         frontLeft.setDirection(DcMotor.Direction.REVERSE);
         backLeft.setDirection(DcMotor.Direction.REVERSE);
         backRight.setDirection(DcMotor.Direction.FORWARD);
@@ -88,23 +56,19 @@ public class REVStarterBotTeleOpMecanumCoded extends LinearOpMode {
         frontRight.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
         backRight.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
 
+
         // Setting our velocity targets. These values are in ticks per second!
         BANK_VELOCITY = 1500;
-        FAR_VELOCITY = 2000;
-        MAX_VELOCITY = 2500;
+        FAR_VELOCITY = 1800;
         waitForStart();
         if (opModeIsActive()) {
             while (opModeIsActive()) {
                 // Calling our functions while the OpMode is running
                 mecanumDrive();
-                setFlywheelVelocity();
+                handleShooterSystem();
                 manualCoreHexAndServoControl();
-                telemetry.addData("Flywheel Velocity", ((DcMotorEx) flywheel).getVelocity());
+                telemetry.addData("Flywheel Velocity", flywheel.getVelocity());
                 telemetry.addData("Flywheel Power", flywheel.getPower());
-                telemetry.addData("Target IMU Angle", refrenceAngle);
-                telemetry.addData("Current IMU Angle", imu.getAngularOrientation(AxesReference.INTRINSIC, AxesOrder.ZYX, AngleUnit.DEGREES).firstAngle);
-                double power = PIDControl(refrenceAngle, imu.getAngularOrientation(AxesReference.INTRINSIC, AxesOrder.ZYX, AngleUnit.RADIANS).firstAngle);
-                power(power);
                 telemetry.update();
             }
         }
@@ -119,6 +83,8 @@ public class REVStarterBotTeleOpMecanumCoded extends LinearOpMode {
             coreHex.setPower(0.5);
         } else if (gamepad2.triangle) {
             coreHex.setPower(-0.5);
+        } else {
+            coreHex.setPower(0);
         }
         // Manual control for the hopper's servo
         if (gamepad2.dpad_left) {
@@ -128,23 +94,59 @@ public class REVStarterBotTeleOpMecanumCoded extends LinearOpMode {
         }
     }
 
-    /**
-     * Describe this function...
-     */
-    private void setFlywheelVelocity() {
-        if (gamepad2.start) {
+    private boolean isFlywheelAtTarget() {
+        if (flywheelTargetVelocity == 0) {
+            return false; // Not spinning
+        }
+        double currentVelocity = flywheel.getVelocity();
+        // Check if the actual velocity is close to the target velocity
+        return Math.abs(currentVelocity - flywheelTargetVelocity) < VELOCITY_TOLERANCE;
+    }
+
+    private void handleShooterSystem() {
+        // --- 1. Set Flywheel Target Velocity ---
+        if (gamepad2.circle) {
+            flywheelTargetVelocity = BANK_VELOCITY;
+
+        } else if (gamepad2.square) {
+            flywheelTargetVelocity = FAR_VELOCITY;
+
+        } else if (gamepad2.start) {
+            // Direct power for quick testing (overrides velocity control)
             flywheel.setPower(-0.5);
-        } else if (gamepad2.left_bumper) {
-            ((DcMotorEx) flywheel).setVelocity(FAR_VELOCITY);
-            servo.setPower(-1);
-        } else if (gamepad2.right_bumper) {
-            ((DcMotorEx) flywheel).setVelocity(BANK_VELOCITY);
-            servo.setPower(-1);
+            flywheelTargetVelocity = -1; // Flag that we're in manual power mode
+
+        } else if (flywheelTargetVelocity > 0) {
+            // Only stop if the flywheel is not in manual power mode and target was previously set
+            flywheelTargetVelocity = 0;
+        }
+
+        // Apply the velocity setpoint unless we are in manual power mode
+        if (flywheelTargetVelocity >= 0) {
+            flywheel.setVelocity(flywheelTargetVelocity);
+        }
+
+        // --- 2. Firing Logic ---
+        // Right Trigger acts as the dedicated Fire/Feed button
+        if (gamepad2.right_trigger > 0.5) {
+            if (isFlywheelAtTarget()) {
+                // Flywheel is ready! Feed the game element.
+                coreHex.setPower(-1.0); // Use full power for quick feeding
+                servo.setPower(-1.0);
+            } else {
+                // Flywheel is spinning up. Do NOT feed yet.
+                coreHex.setPower(0);
+                servo.setPower(0);
+            }
         } else {
-            ((DcMotorEx) flywheel).setVelocity(0);
-            coreHex.setPower(0);
-            // The check below is in place to prevent stuttering with the servo. It checks if the servo is under manual control!
+            // Trigger is not pressed, stop feeding mechanisms
+            if (!gamepad2.cross && !gamepad2.triangle) {
+                // Only stop the coreHex if manual controls (cross/triangle) are NOT being used
+                coreHex.setPower(0);
+            }
+
             if (!gamepad2.dpad_right && !gamepad2.dpad_left) {
+                // Only stop the servo if manual controls (dpad) are NOT being used
                 servo.setPower(0);
             }
         }
@@ -153,34 +155,6 @@ public class REVStarterBotTeleOpMecanumCoded extends LinearOpMode {
     /**
      * Describe this function...
      */
-
-    public void power(double output){
-        frontLeft.setPower(-output);
-        backLeft.setPower(-output);
-        backRight.setPower(output);
-        frontRight.setPower(output);
-
-    }
-
-    public double PIDControl(double refrence, double state) {
-        double error = angleWrap(refrence - state);
-        telemetry.addData("Error: ", error);
-        integralSum += error * timer.seconds();
-        double derivative = (error - lastError) / (timer.seconds());
-        lastError = error;
-        timer.reset();
-        double output = (error * Kp) + (derivative * Kd) + (integralSum * Ki);
-        return output;
-    }
-    public double angleWrap(double radians){
-        while(radians > Math.PI){
-            radians -= 2 * Math.PI;
-        }
-        while(radians < -Math.PI){
-            radians += 2 * Math.PI;
-        }
-        return radians;
-    }
     private void mecanumDrive() {
         float forwardBack;
         float strafe;
@@ -192,7 +166,7 @@ public class REVStarterBotTeleOpMecanumCoded extends LinearOpMode {
 
         forwardBack = gamepad1.left_stick_y;
         strafe = -gamepad1.left_stick_x;
-        turn = -gamepad1.right_stick_x;
+        turn = -gamepad1.right_stick_x * 0.75f;
         leftFrontPower = forwardBack + strafe + turn;
         rightFrontPower = (forwardBack - strafe) - turn;
         leftBackPower = (forwardBack - strafe) + turn;
