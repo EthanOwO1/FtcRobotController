@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode;
+package org.firstinspires.ftc.teamcode.v1;
 
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
@@ -168,7 +168,7 @@ public class REVStarterBotTeleOpMecanumCoded extends LinearOpMode {
         strafe = -gamepad1.left_stick_x;
         turn = -gamepad1.right_stick_x * 0.75f;
         leftFrontPower = forwardBack + strafe + turn;
-        rightFrontPower = (forwardBack - strafe) - turn;
+        rightFrontPower = -((forwardBack - strafe) - turn);
         leftBackPower = (forwardBack - strafe) + turn;
         rightBackPower = (forwardBack + strafe) - turn;
         frontLeft.setPower(leftFrontPower);
