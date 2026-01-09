@@ -19,7 +19,7 @@ import com.qualcomm.robotcore.hardware.Servo;
 
 import org.firstinspires.ftc.robotcore.external.navigation.AngleUnit;
 import org.firstinspires.ftc.robotcore.external.navigation.YawPitchRollAngles;
-import org.firstinspires.ftc.teamcode.TestBench;
+import org.firstinspires.ftc.teamcode.tutorials.TestBench;
 import org.firstinspires.ftc.teamcode.pedroPathing.Constants;
 
 @Autonomous(name = "Close Autonomous", group = "Autonomous")
