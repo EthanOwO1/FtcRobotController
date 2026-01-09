@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode;
+package org.firstinspires.ftc.teamcode.v2;
 
 import com.qualcomm.hardware.limelightvision.LLResult;
 import com.qualcomm.hardware.limelightvision.Limelight3A;
@@ -11,7 +11,7 @@ import org.firstinspires.ftc.robotcore.external.navigation.YawPitchRollAngles;
 import org.firstinspires.ftc.teamcode.TestBench;
 
 @TeleOp
-public class LimeLightAprilSimpleDistance extends OpMode {
+public class LimeLightSimpleDistance extends OpMode {
 
     private Limelight3A limelight3A;
     TestBench bench = new TestBench();
@@ -47,13 +47,9 @@ public class LimeLightAprilSimpleDistance extends OpMode {
     }
 
     public double getDistanceFromTag(double ta){
-        // This equation is derived from a power regression analysis of
-        // target area (ta) vs. distance.
-        // The constant was corrected by a factor of 1000.
-        double scale = 3466.98064;
-        double distance = (scale / ta);
-
-        return distance;
+        // This equation is derived from a power regression of distance vs. target area
+        // from a table of observed values.
+        return 157.6 * Math.pow(ta, -0.584);
     }
 
 
